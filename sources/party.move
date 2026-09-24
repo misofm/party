@@ -67,8 +67,8 @@ public enum PartyKind has drop, store {
 public struct PartyCreatedEvent has copy, drop {
     party_id: ID,
     name: String,
-    /// 0 for an individual, 1 for a group.
-    kind: u8,
+    /// Whether the party is a group (otherwise an individual).
+    is_group: bool,
 }
 
 /// Emitted when the name changes.
@@ -183,7 +183,7 @@ public fun share(self: Party, cap: &PartyAdminCap) {
     emit(PartyCreatedEvent {
         party_id: object::id(&self),
         name: self.name,
-        kind: if (self.is_group_kind()) 1 else 0,
+        is_group: self.is_group_kind(),
     });
     transfer::share_object(self);
 }
@@ -377,9 +377,9 @@ fun remove_membership(group: &mut Party, member: &mut Party) {
 // === Test Only ===
 
 #[test_only]
-public fun created_event_fields(event: PartyCreatedEvent): (ID, String, u8) {
-    let PartyCreatedEvent { party_id, name, kind } = event;
-    (party_id, name, kind)
+public fun created_event_fields(event: PartyCreatedEvent): (ID, String, bool) {
+    let PartyCreatedEvent { party_id, name, is_group } = event;
+    (party_id, name, is_group)
 }
 
 /// A group pre-filled with `n` fake member IDs.

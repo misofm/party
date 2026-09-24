@@ -31,7 +31,7 @@ transaction envelope, or earlier Party events:
 
 | Event | Fields |
 |---|---|
-| `PartyCreatedEvent` | `party_id`, `name`, `kind` (0 individual, 1 group) |
+| `PartyCreatedEvent` | `party_id`, `name`, `is_group` |
 | `PartyNameSetEvent` | `party_id`, `name` |
 | `PartyGroupInviteCreatedEvent`, `…InviteDeclinedEvent`, `…InviteRevokedEvent` | `group_id`, `member_id` |
 | `PartyGroupMembershipAcceptedEvent`, `…MembershipLeftEvent`, `…MembershipRemovedEvent` | `group_id`, `member_id` |

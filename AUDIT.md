@@ -166,3 +166,8 @@ cleared check were re-verified against the new code; none is weakened.
   to the event envelope timestamp, so the field duplicated the creating
   transaction's timestamp. `Party` is now `{ id, kind, name }`; the module
   no longer depends on `sui::clock`.
+- `PartyCreatedEvent` carries `is_group: bool` instead of a `kind: u8` code,
+  so indexers read the kind without a code table. The event is now
+  `{ party_id, name, is_group }`; `PartyKind` itself is not emitted because
+  its `Group` variant holds the member set, which the membership events
+  already carry.

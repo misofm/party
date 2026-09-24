@@ -47,10 +47,10 @@ fun share_makes_party_publicly_readable() {
     group.share(&group_cap);
     let mut events = events_by_type<PartyCreatedEvent>();
     assert_eq!(events.length(), 1);
-    let (event_party_id, event_name, event_kind) = party::created_event_fields(events.pop_back());
+    let (event_party_id, event_name, event_is_group) = party::created_event_fields(events.pop_back());
     assert_eq!(event_party_id, group_id);
     assert_eq!(event_name, b"Final Group".to_string());
-    assert_eq!(event_kind, 1);
+    assert!(event_is_group);
 
     scenario.next_tx(READER);
     let group = scenario.take_shared<Party>();
