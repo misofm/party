@@ -125,4 +125,44 @@ No other findings. Specifically checked and cleared:
   `df::exists_*` honesty) and `derived_object::claim` uniqueness (the cap is
   a derived object of the party, `party.move:245`).
 - The `created_at_ms` clock read is informational only; no logic depends on
-  it.
+  it. (Removed in the 2026-09-24 pass below.)
+
+## Minimalism pass — 2026-09-24
+
+**Toolchain:** sui 1.79.0 · **Verification:** 36/36 unit tests, 0 warnings.
+Line references above are to the audited revision. Findings F1–F3 and every
+cleared check were re-verified against the new code; none is weakened.
+
+- **Events** now carry identity only: `PartyCreatedEvent { party_id, name,
+  kind }`, `PartyNameSetEvent { party_id, name }`, and
+  `{ group_id, member_id }` for the six invite/membership events. Dropped
+  fields were derivable: cap ids (derived from the party id under
+  `PartyAdminCapKey`), `creator`/`accepted_by` (tx sender), `created_epoch`
+  (tx epoch), counts and before/after snapshots, always-true marker flags,
+  `old_name`, and `since_epoch`.
+- **Signatures:** `share(self, cap)` and `accept_invite(group, member,
+  member_cap)` no longer take `ctx` (their only use was the dropped fields).
+- **`Membership { since_epoch }` removed;** the `MembershipKey` value is a
+  `bool` marker like the pending keys. Key construction stays module-private,
+  so F3 (unforgeability) holds unchanged.
+- **Unreachable checks removed:** `ECantAddSelfAsMember` (41) — the same
+  object cannot be passed twice as `&mut`, and a party cannot be both group
+  and individual; the member-side `df::exists` re-checks of the pending
+  markers and the `df::exists` guard in `remove_membership` — all unreachable
+  under the write-together invariant, which is unchanged (`consume_invite`
+  and `remove_membership` are the only writers).
+- **`set_name`** with the current name is now a silent no-op (no write, no
+  event); authorization and validation still run first.
+- **Public surface removed** (no consumer in `misofm/*` used them):
+  `authorize` (now private), `assert_is_individual_kind` and
+  `assert_is_group_kind` (inlined), `party_kind_name`/`PartyKind.name`,
+  `party_admin_cap_party_id`/`PartyAdminCap.party_id`. `PartyKind` no longer
+  has `copy`.
+- Abort precedence is unchanged for every tested path; `accept_invite` on a
+  non-group still aborts `ENotGroupKind` before `ENoPendingInvite`.
+- **`created_at_ms` removed** from `Party`, its accessor, and
+  `PartyCreatedEvent`, together with the `clock: &Clock` parameter of `new`.
+  Every transaction in a consensus commit reads the same `Clock` value, equal
+  to the event envelope timestamp, so the field duplicated the creating
+  transaction's timestamp. `Party` is now `{ id, kind, name }`; the module
+  no longer depends on `sui::clock`.

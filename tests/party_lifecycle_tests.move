@@ -7,10 +7,19 @@
 #[test_only]
 module partyos::party_lifecycle_tests;
 
-use partyos::party::{Self, Party};
+use partyos::party::{
+    Self,
+    Party,
+    PartyCreatedEvent,
+    PartyGroupInviteCreatedEvent,
+    PartyGroupMembershipAcceptedEvent,
+    PartyGroupMembershipLeftEvent,
+    PartyNameSetEvent,
+};
 use partyos::test_helpers;
 use std::unit_test::{assert_eq, destroy};
 use sui::dynamic_field;
+use sui::event::events_by_type;
 use sui::test_scenario;
 
 const OWNER: address = @0xA1;
@@ -18,7 +27,6 @@ const READER: address = @0xB2;
 
 // Error codes from party.move
 const EUnauthorized: u64 = 0;
-const ENotGroupKind: u64 = 11;
 
 #[test]
 fun share_makes_party_publicly_readable() {
@@ -27,39 +35,22 @@ fun share_makes_party_publicly_readable() {
     let (mut member, member_cap) = test_helpers::individual(scenario.ctx());
     let group_id = object::id(&group);
     let member_id = object::id(&member);
-    let group_cap_id = object::id(&group_cap);
-    let created_at_ms = group.created_at_ms();
-    let created_epoch = scenario.ctx().epoch();
 
     // Construction is silent; the creation event waits for the final snapshot.
-    assert_eq!(sui::event::events_by_type<party::PartyCreatedEvent>().length(), 0);
+    assert_eq!(events_by_type<PartyCreatedEvent>().length(), 0);
     group.set_name(&group_cap, b"Final Group".to_string());
     group.invite_party(&mut member, &group_cap);
-    group.accept_invite(&mut member, &member_cap, scenario.ctx());
+    group.accept_invite(&mut member, &member_cap);
     assert_eq!(group.group_members().length(), 1);
-    assert_eq!(sui::event::events_by_type<party::PartyCreatedEvent>().length(), 0);
+    assert_eq!(events_by_type<PartyCreatedEvent>().length(), 0);
 
-    group.share(&group_cap, scenario.ctx());
-    let mut events = sui::event::events_by_type<party::PartyCreatedEvent>();
+    group.share(&group_cap);
+    let mut events = events_by_type<PartyCreatedEvent>();
     assert_eq!(events.length(), 1);
-    let (
-        event_party_id,
-        event_admin_cap_id,
-        event_name,
-        event_kind,
-        event_member_count,
-        event_creator,
-        event_created_at_ms,
-        event_created_epoch,
-    ) = party::created_event_fields(events.pop_back());
+    let (event_party_id, event_name, event_kind) = party::created_event_fields(events.pop_back());
     assert_eq!(event_party_id, group_id);
-    assert_eq!(event_admin_cap_id, group_cap_id);
     assert_eq!(event_name, b"Final Group".to_string());
     assert_eq!(event_kind, 1);
-    assert_eq!(event_member_count, 1);
-    assert_eq!(event_creator, OWNER);
-    assert_eq!(event_created_at_ms, created_at_ms);
-    assert_eq!(event_created_epoch, created_epoch);
 
     scenario.next_tx(READER);
     let group = scenario.take_shared<Party>();
@@ -78,14 +69,14 @@ fun share_makes_party_publicly_readable() {
 fun set_name_works_on_shared_party() {
     let mut scenario = test_scenario::begin(OWNER);
     let (p, cap) = test_helpers::individual(scenario.ctx());
-    p.share(&cap, scenario.ctx());
-    assert_eq!(sui::event::events_by_type<party::PartyCreatedEvent>().length(), 1);
+    p.share(&cap);
+    assert_eq!(events_by_type<PartyCreatedEvent>().length(), 1);
 
     scenario.next_tx(OWNER);
     let mut p = scenario.take_shared<Party>();
     p.set_name(&cap, b"New Stage Name".to_string());
     assert_eq!(p.name(), b"New Stage Name".to_string());
-    assert_eq!(sui::event::events_by_type<party::PartyNameSetEvent>().length(), 1);
+    assert_eq!(events_by_type<PartyNameSetEvent>().length(), 1);
     test_scenario::return_shared(p);
 
     destroy(cap);
@@ -98,7 +89,7 @@ fun set_name_works_on_shared_party() {
 fun uid_mut_attaches_dynamic_fields_on_shared_party() {
     let mut scenario = test_scenario::begin(OWNER);
     let (p, cap) = test_helpers::individual(scenario.ctx());
-    p.share(&cap, scenario.ctx());
+    p.share(&cap);
 
     scenario.next_tx(OWNER);
     let mut p = scenario.take_shared<Party>();
@@ -107,8 +98,8 @@ fun uid_mut_attaches_dynamic_fields_on_shared_party() {
     assert_eq!(*dynamic_field::borrow<vector<u8>, u64>(p.uid(), b"profile"), 42);
     // Dynamic-field attachment is a read/write extension operation and emits
     // no Party lifecycle event in this transaction.
-    assert_eq!(sui::event::events_by_type<party::PartyCreatedEvent>().length(), 0);
-    assert_eq!(sui::event::events_by_type<party::PartyNameSetEvent>().length(), 0);
+    assert_eq!(events_by_type<PartyCreatedEvent>().length(), 0);
+    assert_eq!(events_by_type<PartyNameSetEvent>().length(), 0);
     test_scenario::return_shared(p);
 
     destroy(cap);
@@ -123,7 +114,7 @@ fun share_rejects_wrong_cap() {
 
     destroy(cap);
     destroy(other);
-    party.share(&other_cap, ctx);
+    party.share(&other_cap);
     destroy(other_cap);
 }
 
@@ -136,19 +127,19 @@ fun member_joins_and_leaves_shared_group() {
     let (member, member_cap) = test_helpers::individual(scenario.ctx());
     let group_id = object::id(&group);
     let member_id = object::id(&member);
-    group.share(&group_cap, scenario.ctx());
-    member.share(&member_cap, scenario.ctx());
+    group.share(&group_cap);
+    member.share(&member_cap);
 
     // Group admin invites; the member accepts with its own cap (consent).
     scenario.next_tx(OWNER);
     let mut group = scenario.take_shared_by_id<Party>(group_id);
     let mut member = scenario.take_shared_by_id<Party>(member_id);
     group.invite_party(&mut member, &group_cap);
-    group.accept_invite(&mut member, &member_cap, scenario.ctx());
+    group.accept_invite(&mut member, &member_cap);
     assert_eq!(group.group_members().length(), 1);
     assert!(member.is_member(group_id));
-    assert_eq!(sui::event::events_by_type<party::PartyGroupInviteCreatedEvent>().length(), 1);
-    assert_eq!(sui::event::events_by_type<party::PartyGroupMembershipAcceptedEvent>().length(), 1);
+    assert_eq!(events_by_type<PartyGroupInviteCreatedEvent>().length(), 1);
+    assert_eq!(events_by_type<PartyGroupMembershipAcceptedEvent>().length(), 1);
     test_scenario::return_shared(group);
     test_scenario::return_shared(member);
 
@@ -159,29 +150,11 @@ fun member_joins_and_leaves_shared_group() {
     group.leave(&mut member, &member_cap);
     assert!(!group.group_members().contains(&member_id));
     assert!(!member.is_member(group_id));
-    assert_eq!(sui::event::events_by_type<party::PartyGroupMembershipLeftEvent>().length(), 1);
+    assert_eq!(events_by_type<PartyGroupMembershipLeftEvent>().length(), 1);
     test_scenario::return_shared(group);
     test_scenario::return_shared(member);
 
     destroy(group_cap);
     destroy(member_cap);
     scenario.end();
-}
-
-#[test]
-fun assert_is_group_kind_accepts_group() {
-    let ctx = &mut tx_context::dummy();
-    let (group, cap) = test_helpers::group(ctx);
-    group.assert_is_group_kind();
-    destroy(group);
-    destroy(cap);
-}
-
-#[test, expected_failure(abort_code = ENotGroupKind, location = party)]
-fun assert_is_group_kind_rejects_individual() {
-    let ctx = &mut tx_context::dummy();
-    let (individual, cap) = test_helpers::individual(ctx);
-    individual.assert_is_group_kind();
-    destroy(individual);
-    destroy(cap);
 }

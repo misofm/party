@@ -1,45 +1,31 @@
 #[test_only]
 module partyos::test_helpers;
 
-use partyos::party::{Self, Party, PartyAdminCap};
+use partyos::party::{Self, Party, PartyAdminCap, PartyKind};
 use std::string::String;
-use sui::clock;
 
-/// Creates an individual party with a default name for testing.
+/// An individual party named "Test Artist".
 public fun individual(ctx: &mut TxContext): (Party, PartyAdminCap) {
-    let clock = clock::create_for_testing(ctx);
-    let (party, cap) = party::new(party::new_individual_kind(), b"Test Artist".to_string(), &clock, ctx);
-    clock.destroy_for_testing();
-    (party, cap)
+    individual_named(b"Test Artist".to_string(), ctx)
 }
 
-/// Creates an individual party with a custom name for testing.
+/// An individual party with the given name.
 public fun individual_named(name: String, ctx: &mut TxContext): (Party, PartyAdminCap) {
-    let clock = clock::create_for_testing(ctx);
-    let (party, cap) = party::new(party::new_individual_kind(), name, &clock, ctx);
-    clock.destroy_for_testing();
-    (party, cap)
+    new_party(party::new_individual_kind(), name, ctx)
 }
 
-/// Creates a group party with a default name for testing.
+/// An empty group party named "Test Group".
 public fun group(ctx: &mut TxContext): (Party, PartyAdminCap) {
-    let clock = clock::create_for_testing(ctx);
-    let (party, cap) = party::new(party::new_group_kind(), b"Test Group".to_string(), &clock, ctx);
-    clock.destroy_for_testing();
-    (party, cap)
+    new_party(party::new_group_kind(), b"Test Group".to_string(), ctx)
 }
 
-/// Creates a string of the given length filled with 'A' characters.
+/// `len` bytes of 'A'.
 public fun long_string(len: u64): String {
     let mut s = vector<u8>[];
     len.do!(|_| s.push_back(65));
     s.to_string()
 }
 
-/// Creates a fake ID for testing by creating and immediately deleting a UID.
-public fun fake_id(ctx: &mut TxContext): ID {
-    let uid = object::new(ctx);
-    let id = uid.to_inner();
-    uid.delete();
-    id
+fun new_party(kind: PartyKind, name: String, ctx: &mut TxContext): (Party, PartyAdminCap) {
+    party::new(kind, name, ctx)
 }

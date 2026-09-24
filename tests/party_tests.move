@@ -1,9 +1,22 @@
 #[test_only]
 module partyos::party_tests;
 
-use partyos::party::{Self, Party, PartyAdminCap};
+use partyos::party::{
+    Self,
+    Party,
+    PartyAdminCap,
+    PartyCreatedEvent,
+    PartyGroupInviteCreatedEvent,
+    PartyGroupInviteDeclinedEvent,
+    PartyGroupInviteRevokedEvent,
+    PartyGroupMembershipAcceptedEvent,
+    PartyGroupMembershipLeftEvent,
+    PartyGroupMembershipRemovedEvent,
+    PartyNameSetEvent,
+};
 use partyos::test_helpers;
 use std::unit_test::{assert_eq, destroy};
+use sui::event::events_by_type;
 
 // Error codes from party.move
 const EUnauthorized: u64 = 0;
@@ -27,10 +40,9 @@ fun join(
     group_cap: &PartyAdminCap,
     member: &mut Party,
     member_cap: &PartyAdminCap,
-    ctx: &mut TxContext,
 ) {
     group.invite_party(member, group_cap);
-    group.accept_invite(member, member_cap, ctx);
+    group.accept_invite(member, member_cap);
 }
 
 // === Individual Party ===
@@ -42,7 +54,7 @@ fun test_new_individual() {
     assert_eq!(party.name(), b"Test Artist".to_string());
     assert!(party.is_individual_kind());
     assert!(!party.is_group_kind());
-    assert_eq!(sui::event::events_by_type<party::PartyCreatedEvent>().length(), 0);
+    assert_eq!(events_by_type<PartyCreatedEvent>().length(), 0);
     destroy(party);
     destroy(cap);
 }
@@ -53,7 +65,7 @@ fun test_new_individual_with_max_name() {
     let name = test_helpers::long_string(MAX_NAME_LENGTH);
     let (party, cap) = test_helpers::individual_named(name, ctx);
     assert_eq!(party.name().length(), MAX_NAME_LENGTH);
-    assert_eq!(sui::event::events_by_type<party::PartyCreatedEvent>().length(), 0);
+    assert_eq!(events_by_type<PartyCreatedEvent>().length(), 0);
     destroy(party);
     destroy(cap);
 }
@@ -67,7 +79,7 @@ fun test_new_group() {
     assert!(party.is_group_kind());
     assert!(!party.is_individual_kind());
     assert!(party.group_members().is_empty());
-    assert_eq!(sui::event::events_by_type<party::PartyCreatedEvent>().length(), 0);
+    assert_eq!(events_by_type<PartyCreatedEvent>().length(), 0);
     destroy(party);
     destroy(cap);
 }
@@ -81,7 +93,7 @@ fun test_join_group() {
     let (mut individual, individual_cap) = test_helpers::individual(ctx);
 
     let party_id = object::id(&individual);
-    join(&mut group, &group_cap, &mut individual, &individual_cap, ctx);
+    join(&mut group, &group_cap, &mut individual, &individual_cap);
 
     // Both sides recorded: the group's set and the member's own membership df.
     assert_eq!(group.group_members().length(), 1);
@@ -89,8 +101,8 @@ fun test_join_group() {
     assert!(party::is_member(&individual, object::id(&group)));
     assert!(!group.has_pending_invite(party_id)); // invite consumed
     assert!(!party::has_pending_membership(&individual, object::id(&group))); // inbox entry consumed
-    assert_eq!(sui::event::events_by_type<party::PartyGroupInviteCreatedEvent>().length(), 1);
-    assert_eq!(sui::event::events_by_type<party::PartyGroupMembershipAcceptedEvent>().length(), 1);
+    assert_eq!(events_by_type<PartyGroupInviteCreatedEvent>().length(), 1);
+    assert_eq!(events_by_type<PartyGroupMembershipAcceptedEvent>().length(), 1);
 
     destroy(group);
     destroy(group_cap);
@@ -106,13 +118,13 @@ fun test_join_multiple() {
     let (mut ind2, cap2) = test_helpers::individual_named(b"Artist 2".to_string(), ctx);
     let (mut ind3, cap3) = test_helpers::individual_named(b"Artist 3".to_string(), ctx);
 
-    join(&mut group, &group_cap, &mut ind1, &cap1, ctx);
-    join(&mut group, &group_cap, &mut ind2, &cap2, ctx);
-    join(&mut group, &group_cap, &mut ind3, &cap3, ctx);
+    join(&mut group, &group_cap, &mut ind1, &cap1);
+    join(&mut group, &group_cap, &mut ind2, &cap2);
+    join(&mut group, &group_cap, &mut ind3, &cap3);
 
     assert_eq!(group.group_members().length(), 3);
-    assert_eq!(sui::event::events_by_type<party::PartyGroupInviteCreatedEvent>().length(), 3);
-    assert_eq!(sui::event::events_by_type<party::PartyGroupMembershipAcceptedEvent>().length(), 3);
+    assert_eq!(events_by_type<PartyGroupInviteCreatedEvent>().length(), 3);
+    assert_eq!(events_by_type<PartyGroupMembershipAcceptedEvent>().length(), 3);
 
     destroy(group);
     destroy(group_cap);
@@ -138,15 +150,15 @@ fun test_decline_invite() {
     assert!(!group.has_pending_invite(object::id(&member)));
     assert!(!party::has_pending_membership(&member, object::id(&group)));
     assert_eq!(group.group_members().length(), 0);
-    assert_eq!(sui::event::events_by_type<party::PartyGroupInviteCreatedEvent>().length(), 1);
-    assert_eq!(sui::event::events_by_type<party::PartyGroupInviteDeclinedEvent>().length(), 1);
+    assert_eq!(events_by_type<PartyGroupInviteCreatedEvent>().length(), 1);
+    assert_eq!(events_by_type<PartyGroupInviteDeclinedEvent>().length(), 1);
 
     // A declined invitation can be created again and then accepted.
     group.invite_party(&mut member, &group_cap);
-    group.accept_invite(&mut member, &member_cap, ctx);
+    group.accept_invite(&mut member, &member_cap);
     assert!(party::is_member(&member, object::id(&group)));
-    assert_eq!(sui::event::events_by_type<party::PartyGroupInviteCreatedEvent>().length(), 2);
-    assert_eq!(sui::event::events_by_type<party::PartyGroupMembershipAcceptedEvent>().length(), 1);
+    assert_eq!(events_by_type<PartyGroupInviteCreatedEvent>().length(), 2);
+    assert_eq!(events_by_type<PartyGroupMembershipAcceptedEvent>().length(), 1);
 
     destroy(group);
     destroy(group_cap);
@@ -168,14 +180,14 @@ fun test_revoke_invite() {
     group.revoke_invite(&mut member, &group_cap);
     assert!(!group.has_pending_invite(member_id));
     assert!(!party::has_pending_membership(&member, object::id(&group)));
-    assert_eq!(sui::event::events_by_type<party::PartyGroupInviteCreatedEvent>().length(), 1);
-    assert_eq!(sui::event::events_by_type<party::PartyGroupInviteRevokedEvent>().length(), 1);
+    assert_eq!(events_by_type<PartyGroupInviteCreatedEvent>().length(), 1);
+    assert_eq!(events_by_type<PartyGroupInviteRevokedEvent>().length(), 1);
 
     // Revocation also leaves the invitation reusable.
     group.invite_party(&mut member, &group_cap);
     group.decline_invite(&mut member, &member_cap);
-    assert_eq!(sui::event::events_by_type<party::PartyGroupInviteCreatedEvent>().length(), 2);
-    assert_eq!(sui::event::events_by_type<party::PartyGroupInviteDeclinedEvent>().length(), 1);
+    assert_eq!(events_by_type<PartyGroupInviteCreatedEvent>().length(), 2);
+    assert_eq!(events_by_type<PartyGroupInviteDeclinedEvent>().length(), 1);
 
     destroy(group);
     destroy(group_cap);
@@ -189,7 +201,7 @@ fun test_accept_without_invite() {
     let (mut group, group_cap) = test_helpers::group(ctx);
     let (mut member, member_cap) = test_helpers::individual(ctx);
 
-    group.accept_invite(&mut member, &member_cap, ctx); // no pending invite
+    group.accept_invite(&mut member, &member_cap); // no pending invite
 
     destroy(group);
     destroy(group_cap);
@@ -205,7 +217,7 @@ fun test_accept_with_wrong_cap() {
     let (other, other_cap) = test_helpers::individual(ctx);
 
     group.invite_party(&mut member, &group_cap);
-    group.accept_invite(&mut member, &other_cap, ctx); // not the member's cap
+    group.accept_invite(&mut member, &other_cap); // not the member's cap
 
     destroy(group);
     destroy(group_cap);
@@ -213,6 +225,20 @@ fun test_accept_with_wrong_cap() {
     destroy(member_cap);
     destroy(other);
     destroy(other_cap);
+}
+
+#[test, expected_failure(abort_code = ENotGroupKind, location = party)]
+fun test_accept_on_individual() {
+    let ctx = &mut tx_context::dummy();
+    let (mut party, cap) = test_helpers::individual(ctx);
+    let (mut member, member_cap) = test_helpers::individual(ctx);
+
+    party.accept_invite(&mut member, &member_cap); // `party` is not a group
+
+    destroy(party);
+    destroy(cap);
+    destroy(member);
+    destroy(member_cap);
 }
 
 // === Remove / Evict ===
@@ -223,14 +249,14 @@ fun test_remove_member() {
     let (mut group, group_cap) = test_helpers::group(ctx);
     let (mut individual, individual_cap) = test_helpers::individual(ctx);
 
-    join(&mut group, &group_cap, &mut individual, &individual_cap, ctx);
+    join(&mut group, &group_cap, &mut individual, &individual_cap);
     assert_eq!(group.group_members().length(), 1);
 
     // Admin evict — scrubs both the set and the member's own record, no member cap.
     group.remove_member(&group_cap, &mut individual);
     assert_eq!(group.group_members().length(), 0);
     assert!(!party::is_member(&individual, object::id(&group)));
-    assert_eq!(sui::event::events_by_type<party::PartyGroupMembershipRemovedEvent>().length(), 1);
+    assert_eq!(events_by_type<PartyGroupMembershipRemovedEvent>().length(), 1);
 
     destroy(group);
     destroy(group_cap);
@@ -248,7 +274,7 @@ fun test_set_name() {
     party.set_name(&cap, b"New Name".to_string());
     party.set_name(&cap, b"Final Name".to_string());
     assert_eq!(party.name(), b"Final Name".to_string());
-    assert_eq!(sui::event::events_by_type<party::PartyNameSetEvent>().length(), 2);
+    assert_eq!(events_by_type<PartyNameSetEvent>().length(), 2);
     destroy(party);
     destroy(cap);
 }
@@ -259,7 +285,7 @@ fun equal_name_write_preserves_state_without_event() {
     let (mut party, cap) = test_helpers::individual(ctx);
     party.set_name(&cap, b"Test Artist".to_string());
     assert_eq!(party.name(), b"Test Artist".to_string());
-    assert_eq!(sui::event::events_by_type<party::PartyNameSetEvent>().length(), 0);
+    assert_eq!(events_by_type<PartyNameSetEvent>().length(), 0);
     destroy(party);
     destroy(cap);
 }
@@ -271,7 +297,7 @@ fun test_set_name_at_max_length() {
     let name = test_helpers::long_string(MAX_NAME_LENGTH);
     party.set_name(&cap, name);
     assert_eq!(party.name().length(), MAX_NAME_LENGTH);
-    assert_eq!(sui::event::events_by_type<party::PartyNameSetEvent>().length(), 1);
+    assert_eq!(events_by_type<PartyNameSetEvent>().length(), 1);
     destroy(party);
     destroy(cap);
 }
@@ -299,26 +325,21 @@ fun test_invite_exceeds_max_group_members() {
 #[test, expected_failure(abort_code = EEmptyString, location = party)]
 fun test_new_empty_name() {
     let ctx = &mut tx_context::dummy();
-    let clock = sui::clock::create_for_testing(ctx);
-    let (party, cap) = party::new(party::new_individual_kind(), b"".to_string(), &clock, ctx);
+    let (party, cap) = party::new(party::new_individual_kind(), b"".to_string(), ctx);
     destroy(party);
     destroy(cap);
-    clock.destroy_for_testing();
 }
 
 #[test, expected_failure(abort_code = EMaxNameLengthExceeded, location = party)]
 fun test_new_name_too_long() {
     let ctx = &mut tx_context::dummy();
-    let clock = sui::clock::create_for_testing(ctx);
     let (party, cap) = party::new(
         party::new_individual_kind(),
         test_helpers::long_string(MAX_NAME_LENGTH + 1),
-        &clock,
         ctx,
     );
     destroy(party);
     destroy(cap);
-    clock.destroy_for_testing();
 }
 
 #[test, expected_failure(abort_code = EEmptyString, location = party)]
@@ -345,7 +366,7 @@ fun test_invite_already_member() {
     let (mut group, group_cap) = test_helpers::group(ctx);
     let (mut individual, individual_cap) = test_helpers::individual(ctx);
 
-    join(&mut group, &group_cap, &mut individual, &individual_cap, ctx);
+    join(&mut group, &group_cap, &mut individual, &individual_cap);
     group.invite_party(&mut individual, &group_cap); // already a member
 
     destroy(group);
@@ -460,15 +481,15 @@ fun test_leave_group() {
     let (mut group, group_cap) = test_helpers::group(ctx);
     let (mut member, member_cap) = test_helpers::individual(ctx);
 
-    join(&mut group, &group_cap, &mut member, &member_cap, ctx);
+    join(&mut group, &group_cap, &mut member, &member_cap);
     assert_eq!(group.group_members().length(), 1);
 
     // The member's own cap authorizes the exit — no group admin involved.
     group.leave(&mut member, &member_cap);
     assert_eq!(group.group_members().length(), 0);
     assert!(!party::is_member(&member, object::id(&group)));
-    assert_eq!(sui::event::events_by_type<party::PartyGroupMembershipLeftEvent>().length(), 1);
-    assert_eq!(sui::event::events_by_type<party::PartyGroupMembershipRemovedEvent>().length(), 0);
+    assert_eq!(events_by_type<PartyGroupMembershipLeftEvent>().length(), 1);
+    assert_eq!(events_by_type<PartyGroupMembershipRemovedEvent>().length(), 0);
 
     destroy(group);
     destroy(group_cap);
